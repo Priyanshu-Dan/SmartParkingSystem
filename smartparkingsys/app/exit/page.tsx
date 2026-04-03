@@ -6,6 +6,7 @@ import {
   Html5QrcodeScannerState,
   type QrcodeSuccessCallback,
 } from "html5-qrcode";
+import { RouteGuard } from "@/components/RouteGuard";
 import {
   calculateDurationHours,
   findTicketById,
@@ -93,7 +94,9 @@ export default function ExitPage() {
       }
       await scanner.clear();
     } catch {
-      setScannerMessage("Camera stopped, but the preview container could not be fully cleared.");
+      setScannerMessage(
+        "Camera stopped, but the preview container could not be fully cleared.",
+      );
     } finally {
       scannerRef.current = null;
       setIsScannerActive(false);
@@ -223,228 +226,233 @@ export default function ExitPage() {
   const activeTickets = tickets.filter((ticket) => ticket.status === "ACTIVE");
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
-      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-sm backdrop-blur sm:p-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">
-          Exit Gate
-        </p>
-        <h1 className="mt-4 text-3xl font-bold text-slate-950">
-          Scan tickets, confirm pricing, and calculate the bill
-        </h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          Admins can scan the user QR with the webcam, paste the QR JSON payload,
-          or manually enter the ticket ID. The hourly rate is editable before
-          final checkout so pricing stays flexible.
-        </p>
-      </section>
+    <RouteGuard requireAdmin>
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+        <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-sm backdrop-blur sm:p-8">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">
+            Exit Gate
+          </p>
+          <h1 className="mt-4 text-3xl font-bold text-slate-950">
+            Scan tickets, confirm pricing, and calculate the bill
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+            Scan the QR with the webcam, paste the QR JSON payload, or enter the
+            ticket ID manually. The hourly rate remains editable before final
+            checkout.
+          </p>
+        </section>
 
-      <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-8">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">
-                  QR scanner
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Use the webcam first, or fall back to manual ticket entry.
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={startScanner}
-                  disabled={isScannerLoading || isScannerActive}
-                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  {isScannerLoading
-                    ? "Starting camera..."
-                    : isScannerActive
-                      ? "Scanner Active"
-                      : "Start Scanner"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void stopScanner()}
-                  disabled={!isScannerActive && !isScannerLoading}
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Stop Scanner
-                </button>
-              </div>
-            </div>
-
-            <div
-              id={scannerElementId}
-              className="mt-6 min-h-80 overflow-hidden rounded-[1.75rem] border border-dashed border-slate-200 bg-slate-50"
-            />
-
-            <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              {scannerMessage || "Camera inactive. Start the scanner to detect QR tickets."}
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Manual fallback and pricing
-            </h2>
-
-            <label className="mt-6 block text-sm font-medium text-slate-700">
-              Ticket ID or QR payload
-            </label>
-            <input
-              value={ticketIdInput}
-              onChange={(event) => setTicketIdInput(event.target.value)}
-              placeholder='e.g. TKT-A102 or {"ticketId":"TKT-A102"}'
-              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:bg-white"
-            />
-
-            <label className="mt-5 block text-sm font-medium text-slate-700">
-              Price per hour
-            </label>
-            <div className="mt-2 flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4">
-              <span className="text-sm font-semibold text-slate-500">₹</span>
-              <input
-                value={pricePerHour}
-                onChange={(event) => setPricePerHour(event.target.value)}
-                inputMode="numeric"
-                placeholder="100"
-                className="w-full bg-transparent px-3 py-3 text-slate-900 outline-none"
-              />
-              <span className="text-sm text-slate-500">/ hour</span>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Billing is calculated as rounded-up parking hours multiplied by the
-              admin-selected hourly rate.
-            </div>
-
-            {error ? (
-              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {error}
-              </div>
-            ) : null}
-
-            {message ? (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {message}
-              </div>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={handleProcessExit}
-              disabled={isSubmitting}
-              className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              {isSubmitting ? "Calculating bill..." : "Process Exit"}
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-xl font-semibold text-slate-900">Billing summary</h2>
-
-            {summary ? (
-              <div className="mt-6 rounded-3xl bg-slate-50 p-6">
-                <dl className="space-y-3 text-sm text-slate-600">
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Ticket ID</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {summary.ticketId}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Vehicle Number</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {summary.vehicleNumber}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Slot Number</dt>
-                    <dd className="font-semibold text-slate-900">
-                      P-{summary.slotNumber}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Entry Time</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {formatDateTime(summary.entryTime)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Exit Time</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {formatDateTime(summary.exitTime)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Duration</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {summary.duration} hour{summary.duration > 1 ? "s" : ""}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Rate Applied</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {formatCurrency(summary.pricePerHour)} / hour
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
-                    <dt>Total Price</dt>
-                    <dd className="text-xl font-bold text-slate-950">
-                      {formatCurrency(summary.price)}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            ) : (
-              <div className="mt-6 flex min-h-72 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 text-center text-sm text-slate-500">
-                Scan a ticket or enter an ID, then confirm the hourly rate to
-                generate the final bill.
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Active mock tickets
-            </h2>
-            <div className="mt-5 space-y-3">
-              {activeTickets.length ? (
-                activeTickets.map((ticket) => (
+        <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-8">
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    QR scanner
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Use the webcam first, or fall back to manual ticket entry.
+                  </p>
+                </div>
+                <div className="flex gap-3">
                   <button
-                    key={ticket.ticketId}
                     type="button"
-                    onClick={() => setTicketIdInput(ticket.ticketId)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                    onClick={startScanner}
+                    disabled={isScannerLoading || isScannerActive}
+                    className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                   >
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="font-semibold text-slate-900">
-                        {ticket.ticketId}
-                      </p>
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                        ACTIVE
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {ticket.vehicleNumber} | P-{ticket.slotNumber}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Entered at {formatDateTime(ticket.entryTime)}
-                    </p>
+                    {isScannerLoading
+                      ? "Starting camera..."
+                      : isScannerActive
+                        ? "Scanner Active"
+                        : "Start Scanner"}
                   </button>
-                ))
+                  <button
+                    type="button"
+                    onClick={() => void stopScanner()}
+                    disabled={!isScannerActive && !isScannerLoading}
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Stop Scanner
+                  </button>
+                </div>
+              </div>
+
+              <div
+                id={scannerElementId}
+                className="mt-6 min-h-80 overflow-hidden rounded-[1.75rem] border border-dashed border-slate-200 bg-slate-50"
+              />
+
+              <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                {scannerMessage ||
+                  "Camera inactive. Start the scanner to detect QR tickets."}
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Manual fallback and pricing
+              </h2>
+
+              <label className="mt-6 block text-sm font-medium text-slate-700">
+                Ticket ID or QR payload
+              </label>
+              <input
+                value={ticketIdInput}
+                onChange={(event) => setTicketIdInput(event.target.value)}
+                placeholder='e.g. TKT-A102 or {"ticketId":"TKT-A102"}'
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:bg-white"
+              />
+
+              <label className="mt-5 block text-sm font-medium text-slate-700">
+                Price per hour
+              </label>
+              <div className="mt-2 flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4">
+                <span className="text-sm font-semibold text-slate-500">Rs.</span>
+                <input
+                  value={pricePerHour}
+                  onChange={(event) => setPricePerHour(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="100"
+                  className="w-full bg-transparent px-3 py-3 text-slate-900 outline-none"
+                />
+                <span className="text-sm text-slate-500">/ hour</span>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Billing is calculated as rounded-up parking hours multiplied by
+                the selected hourly rate.
+              </div>
+
+              {error ? (
+                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {error}
+                </div>
+              ) : null}
+
+              {message ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  {message}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={handleProcessExit}
+                disabled={isSubmitting}
+                className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {isSubmitting ? "Calculating bill..." : "Process Exit"}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Billing summary
+              </h2>
+
+              {summary ? (
+                <div className="mt-6 rounded-3xl bg-slate-50 p-6">
+                  <dl className="space-y-3 text-sm text-slate-600">
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Ticket ID</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {summary.ticketId}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Vehicle Number</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {summary.vehicleNumber}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Slot Number</dt>
+                      <dd className="font-semibold text-slate-900">
+                        P-{summary.slotNumber}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Entry Time</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {formatDateTime(summary.entryTime)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Exit Time</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {formatDateTime(summary.exitTime)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Duration</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {summary.duration} hour{summary.duration > 1 ? "s" : ""}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt>Rate Applied</dt>
+                      <dd className="font-semibold text-slate-900">
+                        {formatCurrency(summary.pricePerHour)} / hour
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
+                      <dt>Total Price</dt>
+                      <dd className="text-xl font-bold text-slate-950">
+                        {formatCurrency(summary.price)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               ) : (
-                <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  No active tickets right now.
-                </p>
+                <div className="mt-6 flex min-h-72 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 text-center text-sm text-slate-500">
+                  Scan a ticket or enter an ID, then confirm the hourly rate to
+                  generate the final bill.
+                </div>
               )}
             </div>
+
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Active mock tickets
+              </h2>
+              <div className="mt-5 space-y-3">
+                {activeTickets.length ? (
+                  activeTickets.map((ticket) => (
+                    <button
+                      key={ticket.ticketId}
+                      type="button"
+                      onClick={() => setTicketIdInput(ticket.ticketId)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="font-semibold text-slate-900">
+                          {ticket.ticketId}
+                        </p>
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                          ACTIVE
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {ticket.vehicleNumber} | P-{ticket.slotNumber}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Entered at {formatDateTime(ticket.entryTime)}
+                      </p>
+                    </button>
+                  ))
+                ) : (
+                  <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                    No active tickets right now.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </RouteGuard>
   );
 }

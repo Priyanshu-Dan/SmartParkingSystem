@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AuthNavbar } from "@/components/AuthNavbar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,26 +40,7 @@ export default function RootLayout({
                   Management System
                 </h1>
               </div>
-              <nav className="flex flex-wrap gap-3 text-sm font-medium">
-                <a
-                  href="/entry"
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
-                >
-                  Entry
-                </a>
-                <a
-                  href="/exit"
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
-                >
-                  Exit
-                </a>
-                <a
-                  href="/dashboard"
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-slate-700 transition hover:border-sky-300 hover:text-sky-700"
-                >
-                  Dashboard
-                </a>
-              </nav>
+              <AuthNavbar />
             </div>
           </header>
           <div className="flex flex-1 flex-col">{children}</div>

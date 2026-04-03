@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { ParkingGrid } from "@/components/ParkingGrid";
-import { QRDisplay } from "@/components/QRDisplay";
+import { ParkingTicket } from "@/components/ParkingTicket";
+import { RouteGuard } from "@/components/RouteGuard";
 import {
   type ParkingSlot,
   type ParkingTicket,
@@ -10,7 +11,6 @@ import {
   formatDateTime,
   generateTicketId,
   getParkingState,
-  getTicketPayload,
   mockDelay,
   saveParkingState,
 } from "@/lib/mockParking";
@@ -103,7 +103,8 @@ export default function EntryPage() {
   const freeSlots = slots.filter((slot) => !slot.isOccupied).length;
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+    <RouteGuard>
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-sm backdrop-blur sm:p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-700">
           Entry Gate
@@ -237,24 +238,20 @@ export default function EntryPage() {
                       {formatDateTime(issuedTicket.entryTime)}
                     </dd>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>QR Payload</dt>
-                    <dd className="truncate font-mono text-xs text-slate-900">
-                      {getTicketPayload(issuedTicket.ticketId)}
-                    </dd>
-                  </div>
                 </dl>
               </div>
 
-              <QRDisplay
+              <ParkingTicket
                 ticketId={issuedTicket.ticketId}
                 vehicleNumber={issuedTicket.vehicleNumber}
                 slotNumber={issuedTicket.slotNumber}
+                entryTime={issuedTicket.entryTime}
               />
             </div>
           ) : null}
         </div>
       </section>
-    </main>
+      </main>
+    </RouteGuard>
   );
 }

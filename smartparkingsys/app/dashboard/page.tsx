@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ParkingGrid } from "@/components/ParkingGrid";
+import { RouteGuard } from "@/components/RouteGuard";
 import { StatsCard } from "@/components/StatsCard";
 import {
   type ParkingSlot,
@@ -39,7 +40,8 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+    <RouteGuard requireAdmin>
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-sm backdrop-blur sm:p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-sky-700">
           Dashboard
@@ -146,6 +148,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
-    </main>
+      </main>
+    </RouteGuard>
   );
 }

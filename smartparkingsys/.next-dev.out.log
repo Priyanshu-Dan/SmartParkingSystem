@@ -1,0 +1,18 @@
+
+> smartparkingsys@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.2 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.186.1:3000
+- Environments: .env.local
+✓ Ready in 651ms
+Creating turbopack project {
+  dir: 'C:\\Users\\popu2\\SmartParkingSystem\\smartparkingsys',
+  testMode: true
+}
+
+ GET /register 200 in 1267ms (next.js: 911ms, application-code: 356ms)
+ GET /login 200 in 613ms (next.js: 482ms, application-code: 131ms)
+ POST /api/register 201 in 2.6s (next.js: 867ms, application-code: 1748ms)
+ POST /api/login 200 in 292ms (next.js: 76ms, application-code: 216ms)
