@@ -5,7 +5,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   Html5Qrcode,
   Html5QrcodeScannerState,
+  type Html5QrcodeCameraScanConfig,
   type QrcodeSuccessCallback,
+  type QrDimensions,
 } from "html5-qrcode";
 import { RouteGuard } from "@/components/RouteGuard";
 import { getStoredToken } from "@/lib/auth-client";
@@ -31,6 +33,10 @@ type ExitSummary = {
   ticketId: string;
 };
 
+const SCANNER_FPS = 18;
+const SCANNER_ASPECT_RATIO = 1;
+const SCANNER_TARGET_BOX_SIZE = 280;
+
 function extractTicketId(rawValue: string) {
   const trimmedValue = rawValue.trim();
 
@@ -42,10 +48,33 @@ function extractTicketId(rawValue: string) {
   }
 }
 
+function getScannerBoxSize(viewfinderWidth: number, viewfinderHeight: number): QrDimensions {
+  const frameSize = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) - 32);
+  const clampedSize = Math.max(180, Math.min(SCANNER_TARGET_BOX_SIZE, frameSize));
+
+  return {
+    width: clampedSize,
+    height: clampedSize,
+  };
+}
+
+function createScannerConfig(
+  videoConstraints: MediaTrackConstraints,
+): Html5QrcodeCameraScanConfig {
+  return {
+    fps: SCANNER_FPS,
+    qrbox: getScannerBoxSize,
+    aspectRatio: SCANNER_ASPECT_RATIO,
+    videoConstraints,
+  };
+}
+
 export default function ExitPage() {
   const scannerElementId = useId().replace(/:/g, "-");
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerCleanupPromiseRef = useRef<Promise<void> | null>(null);
+  const isScannerStartingRef = useRef(false);
+  const hasProcessedScanRef = useRef(false);
   const isUnmountingRef = useRef(false);
   const receiptId = useId().replace(/:/g, "-");
   const [ticketIdInput, setTicketIdInput] = useState("");
@@ -123,11 +152,19 @@ export default function ExitPage() {
     return () => {
       isUnmountingRef.current = true;
 
-      void cleanupScanner();
+      void cleanupScanner(true);
     };
   }, []);
 
-  async function cleanupScanner() {
+  function getOrCreateScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode(scannerElementId);
+    }
+
+    return scannerRef.current;
+  }
+
+  async function cleanupScanner(clearScanner = false) {
     if (scannerCleanupPromiseRef.current) {
       await scannerCleanupPromiseRef.current;
       return;
@@ -153,25 +190,30 @@ export default function ExitPage() {
         console.log("Scanner stop error:", error);
       }
 
-      try {
-        await scanner.clear();
-      } catch (error) {
-        console.log("Scanner cleanup error:", error);
+      if (clearScanner) {
+        try {
+          scanner.clear();
+        } catch (error) {
+          console.log("Scanner cleanup error:", error);
 
-        if (!isUnmountingRef.current) {
-          setScannerMessage(
-            "Camera stopped, but the preview container could not be fully cleared.",
-          );
+          if (!isUnmountingRef.current) {
+            setScannerMessage(
+              "Camera stopped, but the preview container could not be fully cleared.",
+            );
+          }
         }
-      } finally {
-        if (scannerRef.current === scanner) {
-          scannerRef.current = null;
-        }
+      }
 
-        if (!isUnmountingRef.current) {
-          setIsScannerActive(false);
-          setIsScannerLoading(false);
-        }
+      hasProcessedScanRef.current = false;
+      isScannerStartingRef.current = false;
+
+      if (clearScanner && scannerRef.current === scanner) {
+        scannerRef.current = null;
+      }
+
+      if (!isUnmountingRef.current) {
+        setIsScannerActive(false);
+        setIsScannerLoading(false);
       }
     })();
 
@@ -188,49 +230,133 @@ export default function ExitPage() {
     await cleanupScanner();
   }
 
+  async function startScannerWithPreferredCamera(
+    scanner: Html5Qrcode,
+    onScanSuccess: QrcodeSuccessCallback,
+  ) {
+    const startAttempts: Array<{
+      label: "rear" | "default";
+      config: Html5QrcodeCameraScanConfig;
+    }> = [
+      {
+        label: "rear",
+        config: createScannerConfig({
+          facingMode: { exact: "environment" },
+          aspectRatio: { ideal: SCANNER_ASPECT_RATIO },
+          frameRate: { ideal: SCANNER_FPS, max: 20 },
+        }),
+      },
+      {
+        label: "rear",
+        config: createScannerConfig({
+          facingMode: { ideal: "environment" },
+          aspectRatio: { ideal: SCANNER_ASPECT_RATIO },
+          frameRate: { ideal: SCANNER_FPS, max: 20 },
+        }),
+      },
+      {
+        label: "default",
+        config: createScannerConfig({
+          aspectRatio: { ideal: SCANNER_ASPECT_RATIO },
+          frameRate: { ideal: SCANNER_FPS, max: 20 },
+        }),
+      },
+    ];
+
+    let lastError: unknown;
+
+    for (const attempt of startAttempts) {
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          attempt.config,
+          onScanSuccess,
+          () => undefined,
+        );
+        return attempt.label;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError;
+  }
+
   async function startScanner() {
-    if (isScannerLoading || isScannerActive || scannerRef.current || scannerCleanupPromiseRef.current) {
+    if (
+      isScannerStartingRef.current ||
+      scannerCleanupPromiseRef.current ||
+      isScannerLoading ||
+      isScannerActive
+    ) {
       return;
     }
 
+    const existingScanner = scannerRef.current;
+
+    if (existingScanner) {
+      try {
+        const scannerState = existingScanner.getState();
+
+        if (
+          scannerState === Html5QrcodeScannerState.SCANNING ||
+          scannerState === Html5QrcodeScannerState.PAUSED
+        ) {
+          return;
+        }
+      } catch (error) {
+        console.log("Scanner state read error:", error);
+      }
+    }
+
+    isScannerStartingRef.current = true;
+    hasProcessedScanRef.current = false;
+
     setError("");
     setMessage("");
-    setScannerMessage("Requesting camera permission...");
+    setScannerMessage("Starting camera and looking for the best lens...");
     setIsScannerLoading(true);
 
     try {
-      const scanner = new Html5Qrcode(scannerElementId);
-      scannerRef.current = scanner;
+      const scanner = getOrCreateScanner();
 
       const onScanSuccess: QrcodeSuccessCallback = async (decodedText) => {
+        if (hasProcessedScanRef.current) {
+          return;
+        }
+
+        hasProcessedScanRef.current = true;
+
         const parsedTicketId = extractTicketId(decodedText);
+
+        setError("");
+        setMessage("");
         setTicketIdInput(parsedTicketId);
-        setScannerMessage(`QR scanned successfully: ${parsedTicketId}`);
+        setScannerMessage(`QR detected instantly. Ticket ${parsedTicketId} is ready to process.`);
+        setIsScannerActive(false);
         await stopScanner();
       };
 
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 220, height: 220 },
-          aspectRatio: 1,
-        },
+      const activeCamera = await startScannerWithPreferredCamera(
+        scanner,
         onScanSuccess,
-        () => undefined,
       );
 
       setIsScannerActive(true);
       setIsScannerLoading(false);
-      setScannerMessage("Scanner is live. Point the camera at the QR code.");
+      setScannerMessage(
+        activeCamera === "default"
+          ? "Scanner is live on the available camera. Hold the full QR inside the square frame."
+          : "Rear camera is live. Hold the full QR inside the square frame for the fastest scan.",
+      );
     } catch {
-      await cleanupScanner();
+      await cleanupScanner(true);
       setScannerMessage("");
       setError(
         "Camera access was blocked or is unavailable. You can still paste the QR payload or enter the ticket ID manually.",
       );
-      setIsScannerLoading(false);
-      setIsScannerActive(false);
+    } finally {
+      isScannerStartingRef.current = false;
     }
   }
 
@@ -389,10 +515,25 @@ export default function ExitPage() {
                 </div>
               </div>
 
-              <div
-                id={scannerElementId}
-                className="mt-6 min-h-80 overflow-hidden rounded-[1.75rem] border border-dashed border-slate-200 bg-slate-50"
-              />
+              <div className="relative mt-6">
+                <div
+                  id={scannerElementId}
+                  className="min-h-80 overflow-hidden rounded-[1.75rem] border border-dashed border-slate-200 bg-slate-50"
+                />
+
+                {!isScannerActive && !isScannerLoading ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="rounded-2xl bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm backdrop-blur">
+                      Place the QR inside the center square
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl bg-slate-950/78 px-4 py-3 text-center text-xs font-medium leading-5 text-white backdrop-blur">
+                  Hold steady for a moment after the QR enters the frame. The scanner
+                  stops automatically as soon as a code is detected.
+                </div>
+              </div>
 
               <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 {scannerMessage ||

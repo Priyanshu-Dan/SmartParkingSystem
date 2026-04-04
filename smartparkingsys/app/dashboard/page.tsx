@@ -255,15 +255,18 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-xl font-semibold text-slate-900">
-            Ticket activity
-          </h2>
+        <div className="h-full rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex h-full flex-col">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Ticket activity
+              </h2>
+            </div>
 
-          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-            <div className="overflow-x-auto">
+            <div className="flex-1 overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-2 shadow-inner">
+              <div className="overflow-x-auto rounded-2xl bg-white">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500">
+                <thead className="sticky top-0 z-10 bg-white text-left text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Vehicle Number</th>
                     <th className="px-4 py-3 font-semibold">Slot Number</th>
@@ -272,8 +275,14 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
-                  {[...tickets].sort((a, b) => b.entryTime.localeCompare(a.entryTime)).map((ticket) => (
-                    <tr key={ticket.ticketId}>
+                  {[...tickets].sort((a, b) => b.entryTime.localeCompare(a.entryTime)).length ? (
+                    [...tickets]
+                      .sort((a, b) => b.entryTime.localeCompare(a.entryTime))
+                      .map((ticket) => (
+                    <tr
+                      key={ticket.ticketId}
+                      className="transition hover:bg-slate-50"
+                    >
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {ticket.vehicleNumber}
                       </td>
@@ -293,9 +302,20 @@ export default function DashboardPage() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                      ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 py-10 text-center text-sm text-slate-500"
+                      >
+                        No tickets available.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         </div>
