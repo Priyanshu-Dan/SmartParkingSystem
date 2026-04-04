@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { ParkingGrid } from "@/components/ParkingGrid";
-import { ParkingTicket } from "@/components/ParkingTicket";
+import { ParkingTicket as ParkingTicketComponent } from "@/components/ParkingTicket";
 import { RouteGuard } from "@/components/RouteGuard";
 import { getStoredToken } from "@/lib/auth-client";
 import {
   type ParkingSlot,
-  type ParkingTicket,
+  type ParkingTicket as ParkingTicketType,
   findFirstFreeSlot,
   formatDateTime,
   generateTicketId,
@@ -20,7 +20,7 @@ export default function EntryPage() {
   const [slots, setSlots] = useState<ParkingSlot[]>(() => getParkingState().slots);
   const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null);
   const [vehicleNumber, setVehicleNumber] = useState("");
-  const [issuedTicket, setIssuedTicket] = useState<ParkingTicket | null>(null);
+  const [issuedTicket, setIssuedTicket] = useState<ParkingTicketType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -102,7 +102,7 @@ export default function EntryPage() {
 
     await mockDelay();
 
-    const ticket: ParkingTicket = {
+    const ticket: ParkingTicketType = {
       ticketId: generateTicketId(),
       vehicleNumber: vehicleNumber.trim().toUpperCase(),
       slotNumber: selectedSlot.slotNumber,
@@ -300,7 +300,7 @@ export default function EntryPage() {
                 </dl>
               </div>
 
-              <ParkingTicket
+              <ParkingTicketComponent
                 ticketId={issuedTicket.ticketId}
                 vehicleNumber={issuedTicket.vehicleNumber}
                 slotNumber={issuedTicket.slotNumber}
