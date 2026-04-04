@@ -10,8 +10,7 @@ export default function Home() {
           management, exit billing, and secure sign-in.
         </h2>
         <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-          Sign in to unlock the pages available to your stored account role, or
-          register a new account to get started.
+          Sign in or register a new account to get started.
         </p>
 
         <div className="mt-8 grid gap-4 md:grid-cols-4">

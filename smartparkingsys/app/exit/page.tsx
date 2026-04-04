@@ -43,6 +43,8 @@ function extractTicketId(rawValue: string) {
 export default function ExitPage() {
   const scannerElementId = useId().replace(/:/g, "-");
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerCleanupPromiseRef = useRef<Promise<void> | null>(null);
+  const isUnmountingRef = useRef(false);
   const [ticketIdInput, setTicketIdInput] = useState("");
   const [tickets, setTickets] = useState<ParkingTicket[]>(() => getParkingState().tickets);
   const [pricePerHour, setPricePerHour] = useState("100");
@@ -70,42 +72,75 @@ export default function ExitPage() {
 
   useEffect(() => {
     return () => {
-      const scanner = scannerRef.current;
+      isUnmountingRef.current = true;
 
-      if (scanner && scanner.getState() === Html5QrcodeScannerState.SCANNING) {
-        void scanner.stop().catch(() => undefined);
-      }
-      if (scanner) {
-        void scanner.clear().catch(() => undefined);
-      }
+      void cleanupScanner();
     };
   }, []);
 
-  async function stopScanner() {
+  async function cleanupScanner() {
+    if (scannerCleanupPromiseRef.current) {
+      await scannerCleanupPromiseRef.current;
+      return;
+    }
+
     const scanner = scannerRef.current;
 
     if (!scanner) {
       return;
     }
 
-    try {
-      if (scanner.getState() === Html5QrcodeScannerState.SCANNING) {
-        await scanner.stop();
+    const cleanupPromise = (async () => {
+      try {
+        const scannerState = scanner.getState();
+
+        if (
+          scannerState === Html5QrcodeScannerState.SCANNING ||
+          scannerState === Html5QrcodeScannerState.PAUSED
+        ) {
+          await scanner.stop();
+        }
+      } catch (error) {
+        console.log("Scanner stop error:", error);
       }
-      await scanner.clear();
-    } catch {
-      setScannerMessage(
-        "Camera stopped, but the preview container could not be fully cleared.",
-      );
+
+      try {
+        await scanner.clear();
+      } catch (error) {
+        console.log("Scanner cleanup error:", error);
+
+        if (!isUnmountingRef.current) {
+          setScannerMessage(
+            "Camera stopped, but the preview container could not be fully cleared.",
+          );
+        }
+      } finally {
+        if (scannerRef.current === scanner) {
+          scannerRef.current = null;
+        }
+
+        if (!isUnmountingRef.current) {
+          setIsScannerActive(false);
+          setIsScannerLoading(false);
+        }
+      }
+    })();
+
+    scannerCleanupPromiseRef.current = cleanupPromise;
+
+    try {
+      await cleanupPromise;
     } finally {
-      scannerRef.current = null;
-      setIsScannerActive(false);
-      setIsScannerLoading(false);
+      scannerCleanupPromiseRef.current = null;
     }
   }
 
+  async function stopScanner() {
+    await cleanupScanner();
+  }
+
   async function startScanner() {
-    if (isScannerLoading || isScannerActive) {
+    if (isScannerLoading || isScannerActive || scannerRef.current || scannerCleanupPromiseRef.current) {
       return;
     }
 
@@ -140,13 +175,13 @@ export default function ExitPage() {
       setIsScannerLoading(false);
       setScannerMessage("Scanner is live. Point the camera at the QR code.");
     } catch {
+      await cleanupScanner();
       setScannerMessage("");
       setError(
         "Camera access was blocked or is unavailable. You can still paste the QR payload or enter the ticket ID manually.",
       );
       setIsScannerLoading(false);
       setIsScannerActive(false);
-      scannerRef.current = null;
     }
   }
 
