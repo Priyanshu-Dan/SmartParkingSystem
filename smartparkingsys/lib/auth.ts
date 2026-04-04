@@ -15,20 +15,43 @@ export type AuthenticatedRequest = NextRequest & {
   authUser?: AuthTokenPayload;
 };
 
-const JWT_SECRET = process.env.JWT_SECRET;
+function getJwtSecret() {
+  const jwtSecret = process.env.JWT_SECRET;
 
-if (!JWT_SECRET) {
-  throw new Error("Please define the JWT_SECRET environment variable in .env.local");
+  if (!jwtSecret) {
+    throw new Error("Please define the JWT_SECRET environment variable in .env.local");
+  }
+
+  return jwtSecret;
+}
+
+function isAuthTokenPayload(value: unknown): value is AuthTokenPayload {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<AuthTokenPayload>;
+
+  return (
+    typeof payload.userId === "string" &&
+    (payload.role === "admin" || payload.role === "user")
+  );
 }
 
 export function signAuthToken(payload: { userId: string; role: AuthRole }) {
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, getJwtSecret(), {
     expiresIn: "7d",
   });
 }
 
 export function verifyAuthToken(token: string) {
-  return jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
+  const decoded = jwt.verify(token, getJwtSecret());
+
+  if (!isAuthTokenPayload(decoded)) {
+    throw new Error("Invalid authentication token payload");
+  }
+
+  return decoded;
 }
 
 export function getTokenFromRequest(request: NextRequest) {

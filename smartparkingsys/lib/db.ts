@@ -1,10 +1,7 @@
 import mongoose from "mongoose";
+import { getRequiredEnv } from "@/lib/env";
 
-const MONGO_URI = process.env.MONGO_URI;
-
-if (!MONGO_URI) {
-  throw new Error("Please define the MONGO_URI environment variable in .env.local");
-}
+const MONGO_URI = getRequiredEnv("MONGO_URI");
 
 type MongooseCache = {
   conn: typeof mongoose | null;

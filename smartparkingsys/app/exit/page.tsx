@@ -7,7 +7,6 @@ import {
   Html5QrcodeScannerState,
   type Html5QrcodeCameraScanConfig,
   type QrcodeSuccessCallback,
-  type QrDimensions,
 } from "html5-qrcode";
 import { RouteGuard } from "@/components/RouteGuard";
 import { getStoredToken } from "@/lib/auth-client";
@@ -33,6 +32,11 @@ type ExitSummary = {
   ticketId: string;
 };
 
+type ScannerBoxDimensions = {
+  width: number;
+  height: number;
+};
+
 const SCANNER_FPS = 18;
 const SCANNER_ASPECT_RATIO = 1;
 const SCANNER_TARGET_BOX_SIZE = 280;
@@ -48,7 +52,10 @@ function extractTicketId(rawValue: string) {
   }
 }
 
-function getScannerBoxSize(viewfinderWidth: number, viewfinderHeight: number): QrDimensions {
+function getScannerBoxSize(
+  viewfinderWidth: number,
+  viewfinderHeight: number,
+): ScannerBoxDimensions {
   const frameSize = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) - 32);
   const clampedSize = Math.max(180, Math.min(SCANNER_TARGET_BOX_SIZE, frameSize));
 
