@@ -10,15 +10,15 @@ import {
   type ParkingTicket as ParkingTicketType,
   findFirstFreeSlot,
   formatDateTime,
-  generateTicketId,
-  getParkingState,
-  mockDelay,
-  saveParkingState,
 } from "@/lib/mockParking";
 
+type LiveParkingSlot = ParkingSlot & {
+  _id: string;
+};
+
 export default function EntryPage() {
-  const [slots, setSlots] = useState<ParkingSlot[]>(() => getParkingState().slots);
-  const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null);
+  const [slots, setSlots] = useState<LiveParkingSlot[]>([]);
+  const [selectedSlotNumber, setSelectedSlotNumber] = useState<number | null>(null);
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [issuedTicket, setIssuedTicket] = useState<ParkingTicketType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,6 +26,39 @@ export default function EntryPage() {
   const [error, setError] = useState("");
   const [pricePerHour, setPricePerHour] = useState<number | null>(null);
   const [configError, setConfigError] = useState("");
+  const [slotsError, setSlotsError] = useState("");
+
+  const selectedSlot =
+    slots.find((slot) => slot.slotNumber === selectedSlotNumber) ?? null;
+
+  async function fetchSlots() {
+    try {
+      const response = await fetch("/api/slots", {
+        cache: "no-store",
+      });
+
+      const data = (await response.json()) as
+        | LiveParkingSlot[]
+        | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Unable to load parking slots.",
+        );
+      }
+
+      setSlots(data);
+      setSlotsError("");
+    } catch (slotsFetchError) {
+      setSlotsError(
+        slotsFetchError instanceof Error
+          ? slotsFetchError.message
+          : "Unable to load parking slots.",
+      );
+    }
+  }
 
   useEffect(() => {
     async function fetchConfig() {
@@ -71,20 +104,27 @@ export default function EntryPage() {
   }, []);
 
   useEffect(() => {
-    const syncSlots = () => {
-      setSlots(getParkingState().slots);
+    void fetchSlots();
+
+    const intervalId = window.setInterval(() => {
+      void fetchSlots();
+    }, 5000);
+
+    const handleFocus = () => {
+      void fetchSlots();
     };
 
-    window.addEventListener("storage", syncSlots);
-    window.addEventListener("parking-state-updated", syncSlots);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      window.removeEventListener("storage", syncSlots);
-      window.removeEventListener("parking-state-updated", syncSlots);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
   async function handleParkVehicle() {
+    const token = getStoredToken();
+
     if (!vehicleNumber.trim()) {
       setError("Enter a vehicle number before assigning a slot.");
       return;
@@ -95,43 +135,67 @@ export default function EntryPage() {
       return;
     }
 
+    if (!token) {
+      setError("Your session has expired. Please log in again.");
+      return;
+    }
+
     setIsSubmitting(true);
     setError("");
     setMessage("");
     setIssuedTicket(null);
 
-    await mockDelay();
+    try {
+      const response = await fetch("/api/entry", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          vehicleNumber,
+          slotId: selectedSlot._id,
+        }),
+      });
 
-    const ticket: ParkingTicketType = {
-      ticketId: generateTicketId(),
-      vehicleNumber: vehicleNumber.trim().toUpperCase(),
-      slotNumber: selectedSlot.slotNumber,
-      entryTime: new Date().toISOString(),
-      exitTime: null,
-      price: 0,
-      status: "ACTIVE",
-    };
+      const data = (await response.json()) as {
+        error?: string;
+        slotNumber?: number;
+        ticketId?: string;
+      };
 
-    const updatedSlots = slots.map((slot) =>
-      slot.slotNumber === selectedSlot.slotNumber
-        ? { ...slot, isOccupied: true }
-        : slot,
-    );
+      if (
+        !response.ok ||
+        typeof data.ticketId !== "string" ||
+        typeof data.slotNumber !== "number"
+      ) {
+        throw new Error(data.error ?? "Unable to create a parking entry.");
+      }
 
-    const currentState = getParkingState();
-    const updatedTickets = [ticket, ...currentState.tickets];
+      const entryTime = new Date().toISOString();
 
-    saveParkingState({
-      slots: updatedSlots,
-      tickets: updatedTickets,
-    });
-
-    setSlots(updatedSlots);
-    setIssuedTicket(ticket);
-    setVehicleNumber("");
-    setSelectedSlot(null);
-    setMessage(`Parking confirmed for slot P-${ticket.slotNumber}.`);
-    setIsSubmitting(false);
+      setIssuedTicket({
+        ticketId: data.ticketId,
+        vehicleNumber: vehicleNumber.trim().toUpperCase(),
+        slotNumber: data.slotNumber,
+        entryTime,
+        exitTime: null,
+        price: 0,
+        status: "ACTIVE",
+      });
+      setVehicleNumber("");
+      setSelectedSlotNumber(null);
+      setMessage(`Parking confirmed for slot P-${data.slotNumber}.`);
+      await fetchSlots();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to create a parking entry.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleAutoAssign() {
@@ -143,7 +207,7 @@ export default function EntryPage() {
     }
 
     setError("");
-    setSelectedSlot(freeSlot);
+    setSelectedSlotNumber(freeSlot.slotNumber);
   }
 
   const freeSlots = slots.filter((slot) => !slot.isOccupied).length;
@@ -190,8 +254,8 @@ export default function EntryPage() {
           <div className="mt-6">
             <ParkingGrid
               slots={slots}
-              selectedSlotNumber={selectedSlot?.slotNumber}
-              onSelectSlot={setSelectedSlot}
+              selectedSlotNumber={selectedSlotNumber}
+              onSelectSlot={(slot) => setSelectedSlotNumber(slot.slotNumber)}
             />
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
@@ -241,6 +305,12 @@ export default function EntryPage() {
           {configError ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               {configError}
+            </div>
+          ) : null}
+
+          {slotsError ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {slotsError}
             </div>
           ) : null}
 

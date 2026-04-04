@@ -9,17 +9,85 @@ import {
   type ParkingSlot,
   type ParkingTicket,
   formatDateTime,
-  getParkingState,
 } from "@/lib/mockParking";
 
 export default function DashboardPage() {
-  const [slots, setSlots] = useState<ParkingSlot[]>(() => getParkingState().slots);
-  const [tickets, setTickets] = useState<ParkingTicket[]>(() => getParkingState().tickets);
+  const [slots, setSlots] = useState<ParkingSlot[]>([]);
+  const [tickets, setTickets] = useState<ParkingTicket[]>([]);
   const [pricePerHour, setPricePerHour] = useState<number | null>(null);
   const [priceInput, setPriceInput] = useState("");
   const [configMessage, setConfigMessage] = useState("");
   const [configError, setConfigError] = useState("");
   const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
+  const [slotsError, setSlotsError] = useState("");
+  const [ticketsError, setTicketsError] = useState("");
+
+  async function fetchSlots() {
+    try {
+      const response = await fetch("/api/slots", {
+        cache: "no-store",
+      });
+
+      const data = (await response.json()) as
+        | ParkingSlot[]
+        | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Unable to load parking slots.",
+        );
+      }
+
+      setSlots(data);
+      setSlotsError("");
+    } catch (slotsFetchError) {
+      setSlotsError(
+        slotsFetchError instanceof Error
+          ? slotsFetchError.message
+          : "Unable to load parking slots.",
+      );
+    }
+  }
+
+  async function fetchTickets() {
+    const token = getStoredToken();
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/tickets", {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = (await response.json()) as
+        | ParkingTicket[]
+        | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Unable to load ticket activity.",
+        );
+      }
+
+      setTickets(data);
+      setTicketsError("");
+    } catch (ticketsFetchError) {
+      setTicketsError(
+        ticketsFetchError instanceof Error
+          ? ticketsFetchError.message
+          : "Unable to load ticket activity.",
+      );
+    }
+  }
 
   useEffect(() => {
     async function fetchConfig() {
@@ -61,18 +129,27 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const syncDashboard = () => {
-      const state = getParkingState();
-      setSlots(state.slots);
-      setTickets(state.tickets);
+    void fetchSlots();
+    void fetchTickets();
+
+    const refreshDashboard = () => {
+      void fetchSlots();
+      void fetchTickets();
     };
 
-    window.addEventListener("storage", syncDashboard);
-    window.addEventListener("parking-state-updated", syncDashboard);
+    const intervalId = window.setInterval(() => {
+      refreshDashboard();
+    }, 5000);
+
+    const handleFocus = () => {
+      refreshDashboard();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      window.removeEventListener("storage", syncDashboard);
-      window.removeEventListener("parking-state-updated", syncDashboard);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -210,6 +287,18 @@ export default function DashboardPage() {
             {configError ? (
               <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {configError}
+              </div>
+            ) : null}
+
+            {slotsError ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {slotsError}
+              </div>
+            ) : null}
+
+            {ticketsError ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {ticketsError}
               </div>
             ) : null}
 
