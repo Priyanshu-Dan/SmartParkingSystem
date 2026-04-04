@@ -66,7 +66,9 @@ export async function POST(request: NextRequest) {
     await slot.save();
 
     return NextResponse.json({
+      ticketId: String(ticket._id),
       vehicleNumber: ticket.vehicleNumber,
+      slotNumber: slot.slotNumber,
       entryTime: ticket.entryTime,
       exitTime,
       duration,

@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
-import { formatDateTime } from "@/lib/mockParking";
+import { formatDateTime } from "@/lib/parking";
 
 type ParkingTicketProps = {
   ticketId: string;

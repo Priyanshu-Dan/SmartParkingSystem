@@ -10,7 +10,7 @@ import {
   type ParkingTicket as ParkingTicketType,
   findFirstFreeSlot,
   formatDateTime,
-} from "@/lib/mockParking";
+} from "@/lib/parking";
 
 type LiveParkingSlot = ParkingSlot & {
   _id: string;

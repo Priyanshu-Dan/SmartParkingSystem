@@ -1,6 +1,6 @@
 "use client";
 
-import type { ParkingSlot } from "@/lib/mockParking";
+import type { ParkingSlot } from "@/lib/parking";
 
 type SlotCardProps = {
   slot: ParkingSlot;

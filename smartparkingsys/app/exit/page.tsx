@@ -11,15 +11,10 @@ import {
 import { RouteGuard } from "@/components/RouteGuard";
 import { getStoredToken } from "@/lib/auth-client";
 import {
-  calculateDurationHours,
-  findTicketById,
   formatCurrency,
   formatDateTime,
-  getParkingState,
-  mockDelay,
-  saveParkingState,
   type ParkingTicket,
-} from "@/lib/mockParking";
+} from "@/lib/parking";
 
 type ExitSummary = {
   vehicleNumber: string;
@@ -36,6 +31,25 @@ type ScannerBoxDimensions = {
   width: number;
   height: number;
 };
+
+function isExitSummary(value: unknown): value is ExitSummary {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const summary = value as Partial<ExitSummary>;
+
+  return (
+    typeof summary.ticketId === "string" &&
+    typeof summary.vehicleNumber === "string" &&
+    typeof summary.slotNumber === "number" &&
+    typeof summary.entryTime === "string" &&
+    typeof summary.exitTime === "string" &&
+    typeof summary.duration === "number" &&
+    typeof summary.pricePerHour === "number" &&
+    typeof summary.price === "number"
+  );
+}
 
 const SCANNER_FPS = 18;
 const SCANNER_ASPECT_RATIO = 1;
@@ -85,7 +99,7 @@ export default function ExitPage() {
   const isUnmountingRef = useRef(false);
   const receiptId = useId().replace(/:/g, "-");
   const [ticketIdInput, setTicketIdInput] = useState("");
-  const [tickets, setTickets] = useState<ParkingTicket[]>(() => getParkingState().tickets);
+  const [tickets, setTickets] = useState<ParkingTicket[]>([]);
   const [pricePerHour, setPricePerHour] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScannerLoading, setIsScannerLoading] = useState(false);
@@ -95,8 +109,45 @@ export default function ExitPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [configError, setConfigError] = useState("");
+  const [ticketsError, setTicketsError] = useState("");
   const [receiptError, setReceiptError] = useState("");
   const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
+
+  async function fetchTickets() {
+    const token = getStoredToken();
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/tickets", {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = (await response.json()) as ParkingTicket[] | { error?: string };
+
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Unable to load active tickets.",
+        );
+      }
+
+      setTickets(data);
+      setTicketsError("");
+    } catch (ticketsFetchError) {
+      setTicketsError(
+        ticketsFetchError instanceof Error
+          ? ticketsFetchError.message
+          : "Unable to load active tickets.",
+      );
+    }
+  }
 
   useEffect(() => {
     async function fetchConfig() {
@@ -142,16 +193,21 @@ export default function ExitPage() {
   }, []);
 
   useEffect(() => {
-    const syncTickets = () => {
-      setTickets(getParkingState().tickets);
+    void fetchTickets();
+
+    const intervalId = window.setInterval(() => {
+      void fetchTickets();
+    }, 5000);
+
+    const handleFocus = () => {
+      void fetchTickets();
     };
 
-    window.addEventListener("storage", syncTickets);
-    window.addEventListener("parking-state-updated", syncTickets);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      window.removeEventListener("storage", syncTickets);
-      window.removeEventListener("parking-state-updated", syncTickets);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -368,6 +424,7 @@ export default function ExitPage() {
   }
 
   async function handleProcessExit() {
+    const token = getStoredToken();
     const parsedTicketId = extractTicketId(ticketIdInput);
 
     if (!parsedTicketId) {
@@ -375,8 +432,8 @@ export default function ExitPage() {
       return;
     }
 
-    if (pricePerHour === null) {
-      setError("The current hourly rate is still loading. Please try again.");
+    if (!token) {
+      setError("Your session has expired. Please log in again.");
       return;
     }
 
@@ -385,58 +442,41 @@ export default function ExitPage() {
     setMessage("");
     setSummary(null);
 
-    await mockDelay();
+    try {
+      const response = await fetch("/api/exit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ticketId: parsedTicketId }),
+      });
 
-    const ticket = findTicketById(parsedTicketId);
+      const data = (await response.json()) as
+        | ExitSummary
+        | { error?: string };
 
-    if (!ticket) {
-      setError("No ticket was found for the scanned or entered ID.");
+      if (!response.ok || !isExitSummary(data)) {
+        throw new Error(
+          typeof data === "object" && data && "error" in data && data.error
+            ? data.error
+            : "Unable to process parking exit.",
+        );
+      }
+
+      setSummary(data);
+      setMessage(`Exit processed for ticket ${data.ticketId}.`);
+      setTicketIdInput("");
+      await fetchTickets();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to process parking exit.",
+      );
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-
-    if (ticket.status === "COMPLETED") {
-      setError("This ticket has already been closed at the exit gate.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    const exitTime = new Date().toISOString();
-    const duration = calculateDurationHours(ticket.entryTime, exitTime);
-    const price = duration * pricePerHour;
-    const state = getParkingState();
-
-    const updatedTickets = state.tickets.map((item) =>
-      item.ticketId === parsedTicketId
-        ? { ...item, exitTime, price, status: "COMPLETED" as const }
-        : item,
-    );
-
-    const updatedSlots = state.slots.map((slot) =>
-      slot.slotNumber === ticket.slotNumber
-        ? { ...slot, isOccupied: false }
-        : slot,
-    );
-
-    saveParkingState({
-      slots: updatedSlots,
-      tickets: updatedTickets,
-    });
-
-    setTickets(updatedTickets);
-    setSummary({
-      vehicleNumber: ticket.vehicleNumber,
-      entryTime: ticket.entryTime,
-      exitTime,
-      duration,
-      pricePerHour,
-      price,
-      slotNumber: ticket.slotNumber,
-      ticketId: ticket.ticketId,
-    });
-    setMessage(`Exit processed for ticket ${parsedTicketId}.`);
-    setTicketIdInput("");
-    setIsSubmitting(false);
   }
 
   async function downloadReceipt() {
@@ -581,6 +621,12 @@ export default function ExitPage() {
                 </div>
               ) : null}
 
+              {ticketsError ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {ticketsError}
+                </div>
+              ) : null}
+
               {error ? (
                 <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {error}
@@ -702,7 +748,7 @@ export default function ExitPage() {
 
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <h2 className="text-xl font-semibold text-slate-900">
-                Active mock tickets
+                Active tickets
               </h2>
               <div className="mt-5 space-y-3">
                 {activeTickets.length ? (

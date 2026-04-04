@@ -9,7 +9,7 @@ import {
   type ParkingSlot,
   type ParkingTicket,
   formatDateTime,
-} from "@/lib/mockParking";
+} from "@/lib/parking";
 
 export default function DashboardPage() {
   const [slots, setSlots] = useState<ParkingSlot[]>([]);
