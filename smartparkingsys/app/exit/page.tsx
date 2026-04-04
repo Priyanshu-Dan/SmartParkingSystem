@@ -1,5 +1,6 @@
 "use client";
 
+import { toPng } from "html-to-image";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   Html5Qrcode,
@@ -7,6 +8,7 @@ import {
   type QrcodeSuccessCallback,
 } from "html5-qrcode";
 import { RouteGuard } from "@/components/RouteGuard";
+import { getStoredToken } from "@/lib/auth-client";
 import {
   calculateDurationHours,
   findTicketById,
@@ -45,9 +47,10 @@ export default function ExitPage() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const isUnmountingRef = useRef(false);
+  const receiptId = useId().replace(/:/g, "-");
   const [ticketIdInput, setTicketIdInput] = useState("");
   const [tickets, setTickets] = useState<ParkingTicket[]>(() => getParkingState().tickets);
-  const [pricePerHour, setPricePerHour] = useState("100");
+  const [pricePerHour, setPricePerHour] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScannerLoading, setIsScannerLoading] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
@@ -55,6 +58,52 @@ export default function ExitPage() {
   const [summary, setSummary] = useState<ExitSummary | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [configError, setConfigError] = useState("");
+  const [receiptError, setReceiptError] = useState("");
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
+
+  useEffect(() => {
+    async function fetchConfig() {
+      const token = getStoredToken();
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/config", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = (await response.json()) as {
+          error?: string;
+          pricePerHour?: number;
+        };
+
+        if (!response.ok || typeof data.pricePerHour !== "number") {
+          throw new Error(data.error ?? "Unable to load the configured rate.");
+        }
+
+        setPricePerHour(data.pricePerHour);
+        setConfigError("");
+      } catch (configFetchError) {
+        setConfigError(
+          configFetchError instanceof Error
+            ? configFetchError.message
+            : "Unable to load the configured rate.",
+        );
+      }
+    }
+
+    void fetchConfig();
+    window.addEventListener("system-config-updated", fetchConfig);
+
+    return () => {
+      window.removeEventListener("system-config-updated", fetchConfig);
+    };
+  }, []);
 
   useEffect(() => {
     const syncTickets = () => {
@@ -187,15 +236,14 @@ export default function ExitPage() {
 
   async function handleProcessExit() {
     const parsedTicketId = extractTicketId(ticketIdInput);
-    const parsedPrice = Number(pricePerHour);
 
     if (!parsedTicketId) {
       setError("Scan a QR code or enter a ticket ID before processing exit.");
       return;
     }
 
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      setError("Enter a valid hourly rate before calculating the bill.");
+    if (pricePerHour === null) {
+      setError("The current hourly rate is still loading. Please try again.");
       return;
     }
 
@@ -222,7 +270,7 @@ export default function ExitPage() {
 
     const exitTime = new Date().toISOString();
     const duration = calculateDurationHours(ticket.entryTime, exitTime);
-    const price = duration * parsedPrice;
+    const price = duration * pricePerHour;
     const state = getParkingState();
 
     const updatedTickets = state.tickets.map((item) =>
@@ -248,7 +296,7 @@ export default function ExitPage() {
       entryTime: ticket.entryTime,
       exitTime,
       duration,
-      pricePerHour: parsedPrice,
+      pricePerHour,
       price,
       slotNumber: ticket.slotNumber,
       ticketId: ticket.ticketId,
@@ -256,6 +304,34 @@ export default function ExitPage() {
     setMessage(`Exit processed for ticket ${parsedTicketId}.`);
     setTicketIdInput("");
     setIsSubmitting(false);
+  }
+
+  async function downloadReceipt() {
+    const node = document.getElementById(receiptId);
+
+    if (!node || !summary) {
+      setReceiptError("Unable to find the receipt to download.");
+      return;
+    }
+
+    try {
+      setIsDownloadingReceipt(true);
+      setReceiptError("");
+
+      const dataUrl = await toPng(node, {
+        cacheBust: true,
+        pixelRatio: 2,
+      });
+
+      const link = document.createElement("a");
+      link.download = `parking-receipt-${summary.ticketId}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch {
+      setReceiptError("Unable to download the receipt right now.");
+    } finally {
+      setIsDownloadingReceipt(false);
+    }
   }
 
   const activeTickets = tickets.filter((ticket) => ticket.status === "ACTIVE");
@@ -268,12 +344,12 @@ export default function ExitPage() {
             Exit Gate
           </p>
           <h1 className="mt-4 text-3xl font-bold text-slate-950">
-            Scan tickets, confirm pricing, and calculate the bill
+            Scan tickets and calculate the bill
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Scan the QR with the webcam, paste the QR JSON payload, or enter the
-            ticket ID manually. The hourly rate remains editable before final
-            checkout.
+            ticket ID manually. Billing uses the live hourly rate configured by
+            the admin dashboard.
           </p>
         </section>
 
@@ -339,25 +415,23 @@ export default function ExitPage() {
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:bg-white"
               />
 
-              <label className="mt-5 block text-sm font-medium text-slate-700">
-                Price per hour
-              </label>
-              <div className="mt-2 flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4">
-                <span className="text-sm font-semibold text-slate-500">Rs.</span>
-                <input
-                  value={pricePerHour}
-                  onChange={(event) => setPricePerHour(event.target.value)}
-                  inputMode="numeric"
-                  placeholder="100"
-                  className="w-full bg-transparent px-3 py-3 text-slate-900 outline-none"
-                />
-                <span className="text-sm text-slate-500">/ hour</span>
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Current rate:{" "}
+                <span className="font-semibold text-slate-900">
+                  {pricePerHour === null ? "Loading..." : `Rs. ${pricePerHour}/hour`}
+                </span>
               </div>
 
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 Billing is calculated as rounded-up parking hours multiplied by
-                the selected hourly rate.
+                the configured hourly rate.
               </div>
+
+              {configError ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {configError}
+                </div>
+              ) : null}
 
               {error ? (
                 <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -389,62 +463,91 @@ export default function ExitPage() {
               </h2>
 
               {summary ? (
-                <div className="mt-6 rounded-3xl bg-slate-50 p-6">
-                  <dl className="space-y-3 text-sm text-slate-600">
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Ticket ID</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {summary.ticketId}
-                      </dd>
+                <div className="mt-6 space-y-4">
+                  <div
+                    id={receiptId}
+                    className="rounded-3xl bg-slate-50 p-6"
+                  >
+                    <div className="border-b border-slate-200 pb-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                        Smart Parking System
+                      </p>
+                      <h3 className="mt-3 text-2xl font-bold text-slate-950">
+                        Parking Receipt
+                      </h3>
                     </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Vehicle Number</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {summary.vehicleNumber}
-                      </dd>
+
+                    <dl className="mt-5 space-y-3 text-sm text-slate-600">
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Ticket ID</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {summary.ticketId}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Vehicle Number</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {summary.vehicleNumber}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Slot Number</dt>
+                        <dd className="font-semibold text-slate-900">
+                          P-{summary.slotNumber}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Entry Time</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {formatDateTime(summary.entryTime)}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Exit Time</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {formatDateTime(summary.exitTime)}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Duration</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {summary.duration} hour{summary.duration > 1 ? "s" : ""}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt>Rate Applied</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {formatCurrency(summary.pricePerHour)} / hour
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
+                        <dt>Total Price</dt>
+                        <dd className="text-xl font-bold text-slate-950">
+                          {formatCurrency(summary.price)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  {receiptError ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                      {receiptError}
                     </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Slot Number</dt>
-                      <dd className="font-semibold text-slate-900">
-                        P-{summary.slotNumber}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Entry Time</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {formatDateTime(summary.entryTime)}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Exit Time</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {formatDateTime(summary.exitTime)}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Duration</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {summary.duration} hour{summary.duration > 1 ? "s" : ""}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <dt>Rate Applied</dt>
-                      <dd className="font-semibold text-slate-900">
-                        {formatCurrency(summary.pricePerHour)} / hour
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
-                      <dt>Total Price</dt>
-                      <dd className="text-xl font-bold text-slate-950">
-                        {formatCurrency(summary.price)}
-                      </dd>
-                    </div>
-                  </dl>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => void downloadReceipt()}
+                    disabled={isDownloadingReceipt}
+                    className="w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-200"
+                  >
+                    {isDownloadingReceipt ? "Downloading receipt..." : "Download Receipt"}
+                  </button>
                 </div>
               ) : (
                 <div className="mt-6 flex min-h-72 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 text-center text-sm text-slate-500">
-                  Scan a ticket or enter an ID, then confirm the hourly rate to
-                  generate the final bill.
+                  Scan a ticket or enter an ID to generate the final bill with
+                  the configured hourly rate.
                 </div>
               )}
             </div>

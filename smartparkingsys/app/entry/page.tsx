@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ParkingGrid } from "@/components/ParkingGrid";
 import { ParkingTicket } from "@/components/ParkingTicket";
 import { RouteGuard } from "@/components/RouteGuard";
+import { getStoredToken } from "@/lib/auth-client";
 import {
   type ParkingSlot,
   type ParkingTicket,
@@ -23,6 +24,51 @@ export default function EntryPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pricePerHour, setPricePerHour] = useState<number | null>(null);
+  const [configError, setConfigError] = useState("");
+
+  useEffect(() => {
+    async function fetchConfig() {
+      const token = getStoredToken();
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/config", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = (await response.json()) as {
+          error?: string;
+          pricePerHour?: number;
+        };
+
+        if (!response.ok || typeof data.pricePerHour !== "number") {
+          throw new Error(data.error ?? "Unable to load pricing.");
+        }
+
+        setPricePerHour(data.pricePerHour);
+        setConfigError("");
+      } catch (configFetchError) {
+        setConfigError(
+          configFetchError instanceof Error
+            ? configFetchError.message
+            : "Unable to load the current parking rate.",
+        );
+      }
+    }
+
+    void fetchConfig();
+    window.addEventListener("system-config-updated", fetchConfig);
+
+    return () => {
+      window.removeEventListener("system-config-updated", fetchConfig);
+    };
+  }, []);
 
   useEffect(() => {
     const syncSlots = () => {
@@ -120,7 +166,7 @@ export default function EntryPage() {
             </p>
           </div>
           <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            Free slots: {freeSlots}
+            {pricePerHour === null ? "Loading current rate..." : `Rate: Rs. ${pricePerHour}/hr`}
           </div>
         </div>
       </section>
@@ -185,6 +231,19 @@ export default function EntryPage() {
             </span>
           </div>
 
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+            Current rate:{" "}
+            <span className="font-semibold text-slate-900">
+              {pricePerHour === null ? "Loading..." : `Rs. ${pricePerHour}/hour`}
+            </span>
+          </div>
+
+          {configError ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {configError}
+            </div>
+          ) : null}
+
           {selectedSlot ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               Slot P-{selectedSlot.slotNumber} is reserved in this mock flow
@@ -246,6 +305,7 @@ export default function EntryPage() {
                 vehicleNumber={issuedTicket.vehicleNumber}
                 slotNumber={issuedTicket.slotNumber}
                 entryTime={issuedTicket.entryTime}
+                pricePerHour={pricePerHour}
               />
             </div>
           ) : null}

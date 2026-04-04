@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ParkingGrid } from "@/components/ParkingGrid";
 import { RouteGuard } from "@/components/RouteGuard";
 import { StatsCard } from "@/components/StatsCard";
+import { getStoredToken } from "@/lib/auth-client";
 import {
   type ParkingSlot,
   type ParkingTicket,
@@ -14,6 +15,50 @@ import {
 export default function DashboardPage() {
   const [slots, setSlots] = useState<ParkingSlot[]>(() => getParkingState().slots);
   const [tickets, setTickets] = useState<ParkingTicket[]>(() => getParkingState().tickets);
+  const [pricePerHour, setPricePerHour] = useState<number | null>(null);
+  const [priceInput, setPriceInput] = useState("");
+  const [configMessage, setConfigMessage] = useState("");
+  const [configError, setConfigError] = useState("");
+  const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
+
+  useEffect(() => {
+    async function fetchConfig() {
+      const token = getStoredToken();
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/config", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = (await response.json()) as {
+          error?: string;
+          pricePerHour?: number;
+        };
+
+        if (!response.ok || typeof data.pricePerHour !== "number") {
+          throw new Error(data.error ?? "Unable to load system pricing.");
+        }
+
+        setPricePerHour(data.pricePerHour);
+        setPriceInput(String(data.pricePerHour));
+        setConfigError("");
+      } catch (configFetchError) {
+        setConfigError(
+          configFetchError instanceof Error
+            ? configFetchError.message
+            : "Unable to load system pricing.",
+        );
+      }
+    }
+
+    void fetchConfig();
+  }, []);
 
   useEffect(() => {
     const syncDashboard = () => {
@@ -38,6 +83,59 @@ export default function DashboardPage() {
   const occupancyRate = totalSlots
     ? Math.round((occupiedSlots / totalSlots) * 100)
     : 0;
+
+  async function handleUpdatePrice() {
+    const token = getStoredToken();
+    const nextPrice = Number(priceInput);
+
+    if (!token) {
+      setConfigError("Your session has expired. Please log in again.");
+      return;
+    }
+
+    if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+      setConfigError("Enter a valid price per hour before updating.");
+      return;
+    }
+
+    setIsUpdatingPrice(true);
+    setConfigError("");
+    setConfigMessage("");
+
+    try {
+      const response = await fetch("/api/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pricePerHour: nextPrice }),
+      });
+
+      const data = (await response.json()) as {
+        error?: string;
+        message?: string;
+        pricePerHour?: number;
+      };
+
+      if (!response.ok || typeof data.pricePerHour !== "number") {
+        throw new Error(data.error ?? "Unable to update pricing.");
+      }
+
+      setPricePerHour(data.pricePerHour);
+      setPriceInput(String(data.pricePerHour));
+      setConfigMessage(data.message ?? "Price updated successfully.");
+      window.dispatchEvent(new Event("system-config-updated"));
+    } catch (updateError) {
+      setConfigError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Unable to update pricing.",
+      );
+    } finally {
+      setIsUpdatingPrice(false);
+    }
+  }
 
   return (
     <RouteGuard requireAdmin>
@@ -68,6 +166,60 @@ export default function DashboardPage() {
           value={activeTickets.length}
           accent="bg-sky-500"
         />
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">
+              Pricing control
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Set the live hourly parking rate used across entry tickets and exit billing.
+            </p>
+            <p className="mt-3 text-sm text-slate-700">
+              Current rate:{" "}
+              <span className="font-semibold text-slate-900">
+                {pricePerHour === null ? "Loading..." : `Rs. ${pricePerHour}/hour`}
+              </span>
+            </p>
+          </div>
+
+          <div className="w-full max-w-md">
+            <label className="block text-sm font-medium text-slate-700">
+              Set Price per Hour (Rs.)
+            </label>
+            <div className="mt-2 flex gap-3">
+              <input
+                value={priceInput}
+                onChange={(event) => setPriceInput(event.target.value)}
+                inputMode="numeric"
+                placeholder="Enter hourly rate"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white"
+              />
+              <button
+                type="button"
+                onClick={() => void handleUpdatePrice()}
+                disabled={isUpdatingPrice}
+                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {isUpdatingPrice ? "Updating..." : "Update Price"}
+              </button>
+            </div>
+
+            {configError ? (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {configError}
+              </div>
+            ) : null}
+
+            {configMessage ? (
+              <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {configMessage}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-8 xl:grid-cols-[1fr_1.1fr]">

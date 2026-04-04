@@ -11,6 +11,7 @@ type ParkingTicketProps = {
   vehicleNumber: string;
   slotNumber: number;
   entryTime: string;
+  pricePerHour: number | null;
 };
 
 export function ParkingTicket({
@@ -18,6 +19,7 @@ export function ParkingTicket({
   vehicleNumber,
   slotNumber,
   entryTime,
+  pricePerHour,
 }: ParkingTicketProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [isGenerating, setIsGenerating] = useState(true);
@@ -121,7 +123,9 @@ export function ParkingTicket({
           </div>
           <div className="flex items-center justify-between gap-4">
             <span>Rate</span>
-            <span className="font-semibold text-slate-900">Rs. 20/hour</span>
+            <span className="font-semibold text-slate-900">
+              {pricePerHour === null ? "Loading..." : `Rs. ${pricePerHour}/hour`}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span>Ticket ID</span>
