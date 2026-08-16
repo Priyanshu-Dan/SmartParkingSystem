@@ -72,7 +72,7 @@ export default function LoginPage() {
               allowed for your access level.
             </p>
             <div className="mt-6 rounded-2xl border border-sky-200 bg-white px-4 py-3 text-sm text-slate-600">
-              Your access level is based on the role assigned to your account during registration.  
+              Your access level is based on the role chosen by you during your account during registration.  
             </div>
           </div>
 
